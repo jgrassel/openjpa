@@ -20,6 +20,9 @@ package org.apache.openjpa.persistence;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.security.AccessController;
+import java.security.CodeSource;
+import java.security.ProtectionDomain;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -28,6 +31,10 @@ import java.util.Set;
 import javax.persistence.Cache;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.PersistenceUnitUtil;
+import javax.persistence.metamodel.EmbeddableType;
+import javax.persistence.metamodel.EntityType;
+import javax.persistence.metamodel.MappedSuperclassType;
+import javax.persistence.metamodel.Type;
 import javax.persistence.spi.LoadState;
 
 import org.apache.commons.lang.StringUtils;
@@ -42,14 +49,18 @@ import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.conf.Value;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Closeable;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.criteria.CriteriaBuilderImpl;
 import org.apache.openjpa.persistence.criteria.OpenJPACriteriaBuilder;
 import org.apache.openjpa.persistence.meta.MetamodelImpl;
+import org.apache.openjpa.persistence.meta.Types;
 import org.apache.openjpa.persistence.query.OpenJPAQueryBuilder;
 import org.apache.openjpa.persistence.query.QueryBuilderImpl;
 import org.apache.openjpa.util.UserException;
+
+import jag.JAGDebug;
 
 /**
  * Implementation of {@link EntityManagerFactory} that acts as a
@@ -343,13 +354,34 @@ public class EntityManagerFactoryImpl
     }
 
     public MetamodelImpl getMetamodel() {
-        if (_metaModel == null) {
-            MetaDataRepository mdr = getConfiguration().getMetaDataRepositoryInstance();
-            mdr.setValidate(MetaDataRepository.VALIDATE_RUNTIME, true);
-            mdr.setResolve(MetaDataRepository.MODE_MAPPING_INIT, true);
-            _metaModel = new MetamodelImpl(mdr);
+        JAGDebug.beginReportTracking(true);
+        MetamodelImpl retVal = null;
+        try {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            try {
+                rc.append("EntityManagerFactoryImpl.getMetamodel() entry:").nl();
+                rc.logVariable("   this", this).append(" ").logObjectAddress(this).nl();
+
+            } finally {
+                rc.done();
+            }
+            
+            if (_metaModel == null) {
+                MetaDataRepository mdr = getConfiguration().getMetaDataRepositoryInstance();
+                mdr.setValidate(MetaDataRepository.VALIDATE_RUNTIME, true);
+                mdr.setResolve(MetaDataRepository.MODE_MAPPING_INIT, true);
+                _metaModel = new MetamodelImpl(mdr);
+            }
+            
+            retVal = _metaModel;
+            return _metaModel;
+        } finally {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            rc.append("EntityManagerFactoryImpl.getMetamodel() exit: ").nl();
+            rc.logVariable("retVal", retVal);
+            rc.done();
+            JAGDebug.endReportTracking();
         }
-        return _metaModel;
     }
 
     public PersistenceUnitUtil getPersistenceUnitUtil() {

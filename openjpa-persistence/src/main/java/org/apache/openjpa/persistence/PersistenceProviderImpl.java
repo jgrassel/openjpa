@@ -20,6 +20,8 @@ package org.apache.openjpa.persistence;
 
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
+import java.security.AccessController;
+import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.util.HashMap;
 import java.util.Map;
@@ -43,6 +45,7 @@ import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.AbstractCFMetaDataFactory;
 import org.apache.openjpa.meta.MetaDataModes;
@@ -50,6 +53,8 @@ import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.osgi.BundleUtils;
 import org.apache.openjpa.persistence.validation.ValidationUtils;
 import org.apache.openjpa.util.ClassResolver;
+
+import jag.JAGDebug;
 
 
 /**
@@ -80,55 +85,91 @@ public class PersistenceProviderImpl
      * @return EntityManagerFactory or null
      */
     public OpenJPAEntityManagerFactory createEntityManagerFactory(String name, String resource, Map m) {
-        PersistenceProductDerivation pd = new PersistenceProductDerivation();
+        JAGDebug.beginReportTracking(true);
+        OpenJPAEntityManagerFactory retVal = null;
         try {
-            Object poolValue = Configurations.removeProperty(EMF_POOL, m);
-            ConfigurationProvider cp = pd.load(resource, name, m);
-            if (cp == null) {
-                return null;
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            try {
+                rc.append("PersistenceProviderImpl.createEntityManagerFactory() entry:").nl();
+                rc.logVariable("   this", this).append(" ").logObjectAddress(this).nl();
+                rc.logVariable("   name", name).append(" ").nl();
+                rc.logVariable("   resource", resource).append(" ").nl();
+                rc.logVariable("   m", m).append(" ").nl();
+            } finally {
+                rc.done();
             }
+            
+            PersistenceProductDerivation pd = new PersistenceProductDerivation();
+            try {
+                Object poolValue = Configurations.removeProperty(EMF_POOL, m);
+                ConfigurationProvider cp = pd.load(resource, name, m);
+                if (cp == null) {
+                    return null;
+                }
 
-            BrokerFactory factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
-            OpenJPAConfiguration conf = factory.getConfiguration();
-            conf.setAppClassLoader(BundleUtils.getBundleClassLoader());
-            _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);            
-            pd.checkPuNameCollisions(_log,name);
-            
-            // add enhancer
-            loadAgent(factory);
-            
-            // Create appropriate LifecycleEventManager
-            loadValidator(factory);
-            
-            if (conf.getConnectionRetainModeConstant() == ConnectionRetainModes.CONN_RETAIN_ALWAYS) {
-                // warn about EMs holding on to connections.
-                _log.warn(_loc.get("retain-always", conf.getId()));
+                BrokerFactory factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
+                OpenJPAConfiguration conf = factory.getConfiguration();
+                conf.setAppClassLoader(BundleUtils.getBundleClassLoader());
+                _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);            
+                pd.checkPuNameCollisions(_log,name);
+                JAGDebug.startReportChain().logVariable("conf", conf).append(" ").logObjectAddress(conf).done();
+                
+                JAGDebug.startReportChain().logVariable("factory", factory).append(" ")
+                    .logObjectAddress(factory).done();
+                if (factory instanceof org.apache.openjpa.kernel.DelegatingBrokerFactory) {
+                    BrokerFactory delegate = ((org.apache.openjpa.kernel.DelegatingBrokerFactory)factory).getDelegate();
+                    JAGDebug.startReportChain().logVariable("factory delegate", delegate)
+                        .append(" ").logObjectAddress(delegate).done();
+                }
+                JAGDebug.startReportChain().logVariable("mdr", conf.getMetaDataRepositoryInstance())
+                    .append(" ").logObjectAddress(conf.getMetaDataRepositoryInstance()).done();
+                
+                
+                // add enhancer
+                loadAgent(factory);
+                
+                // Create appropriate LifecycleEventManager
+                loadValidator(factory);
+                
+                if (conf.getConnectionRetainModeConstant() == ConnectionRetainModes.CONN_RETAIN_ALWAYS) {
+                    // warn about EMs holding on to connections.
+                    _log.warn(_loc.get("retain-always", conf.getId()));
+                }
+                
+                OpenJPAEntityManagerFactory emf = JPAFacadeHelper.toEntityManagerFactory(factory);
+                if (_log.isTraceEnabled()) {
+                    _log.trace(this + " creating " + emf + " for PU " + name + ".");
+                }
+                retVal = emf;
+                return emf;
+            } catch (Exception e) {
+                if (_log != null) {
+                    _log.error(_loc.get("create-emf-error", name), e);
+                }
+                
+                /*
+                 * 
+                 * Maintain 1.x behavior of throwing exceptions, even though
+                 * JPA2 9.2 - createEMF "must" return null for PU it can't handle.
+                 * 
+                 * JPA 2.0 Specification Section 9.2 states:
+                 * "If a provider does not qualify as the provider for the named persistence unit, 
+                 * it must return null when createEntityManagerFactory is invoked on it."
+                 * That specification compliance behavior has happened few lines above on null return. 
+                 * Throwing runtime exception in the following code is valid (and useful) behavior
+                 * because the qualified provider has encountered an unexpected situation.
+                 */
+                throw PersistenceExceptions.toPersistenceException(e);                
             }
-            
-            OpenJPAEntityManagerFactory emf = JPAFacadeHelper.toEntityManagerFactory(factory);
-            if (_log.isTraceEnabled()) {
-                _log.trace(this + " creating " + emf + " for PU " + name + ".");
-            }
-            return emf;
-        } catch (Exception e) {
-            if (_log != null) {
-                _log.error(_loc.get("create-emf-error", name), e);
-            }
-            
-            /*
-             * 
-             * Maintain 1.x behavior of throwing exceptions, even though
-             * JPA2 9.2 - createEMF "must" return null for PU it can't handle.
-             * 
-             * JPA 2.0 Specification Section 9.2 states:
-             * "If a provider does not qualify as the provider for the named persistence unit, 
-             * it must return null when createEntityManagerFactory is invoked on it."
-             * That specification compliance behavior has happened few lines above on null return. 
-             * Throwing runtime exception in the following code is valid (and useful) behavior
-             * because the qualified provider has encountered an unexpected situation.
-             */
-            throw PersistenceExceptions.toPersistenceException(e);                
+        }  finally {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            rc.append("PersistenceProviderImpl.createEntityManagerFactory() exit: ").nl();
+            rc.logVariable("   retVal", retVal).append(" ").logObjectAddress(retVal).nl();
+            rc.done();
+            JAGDebug.endReportTracking();
         }
+        
+        
     }
 
     private BrokerFactory getBrokerFactory(ConfigurationProvider cp,
@@ -155,68 +196,111 @@ public class PersistenceProviderImpl
     }
 
     public OpenJPAEntityManagerFactory createContainerEntityManagerFactory(PersistenceUnitInfo pui, Map m) {
-        PersistenceProductDerivation pd = new PersistenceProductDerivation();
+        JAGDebug.beginReportTracking(true);
+        OpenJPAEntityManagerFactory retVal = null;
         try {
-            Object poolValue = Configurations.removeProperty(EMF_POOL, m);
-            ConfigurationProvider cp = pd.load(pui, m);
-            if (cp == null)
-                return null;
-
-            // add enhancer
-            Exception transformerException = null;
-            String ctOpts = (String) Configurations.getProperty(CLASS_TRANSFORMER_OPTIONS, pui.getProperties());
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
             try {
-                pui.addTransformer(new ClassTransformerImpl(cp, ctOpts,
-                    pui.getNewTempClassLoader(), newConfigurationImpl()));
-            } catch (Exception e) {
-                // fail gracefully
-                transformerException = e;
-            }
-
-            // if the BrokerImpl hasn't been specified, switch to the
-            // non-finalizing one, since anything claiming to be a container
-            // should be doing proper resource management.
-            if (!Configurations.containsProperty(BrokerValue.KEY, cp.getProperties())) {
-                cp.addProperty("openjpa." + BrokerValue.KEY, getDefaultBrokerAlias());
-            }
-
-            // OPENJPA-1491 If running under OSGi, use the Bundle's ClassLoader instead of the application one
-            BrokerFactory factory;
-            if (BundleUtils.runningUnderOSGi()) {
-                factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
-            } else {
-                factory = getBrokerFactory(cp, poolValue, pui.getClassLoader());
-            }
-
-            OpenJPAConfiguration conf = factory.getConfiguration();
-            conf.setAppClassLoader(pui.getClassLoader());
-            setPersistenceEnvironmentInfo(conf, pui);
-            _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
-            // now we can log any transformer exceptions from above
-            if (transformerException != null) {
-                if (_log.isTraceEnabled()) {
-                    _log.warn(_loc.get("transformer-registration-error-ex", pui), transformerException);
-                } else {
-                    _log.warn(_loc.get("transformer-registration-error", pui));
+                rc.append("PersistenceProviderImpl.createContainerEntityManagerFactory() entry:").nl();
+                rc.logVariable("   this", this).append(" ").logObjectAddress(this).nl();
+                rc.logVariable("   pui", pui).append(" ").logObjectAddress(pui).nl();
+                rc.logVariable("   m", m).append(" ").nl();
+                
+                if (pui != null) {
+                    rc.nl();
+                    rc.logVariable("      pui.purootURL", pui.getPersistenceUnitRootUrl()).nl();
+                    java.util.List<java.net.URL> urlList = pui.getJarFileUrls();
+                    if (urlList != null && urlList.size() > 0) {
+                        for (java.net.URL url : urlList) {
+                            rc.logVariable("      pui.jarfileurl", url).nl();
+                        }
+                    }
                 }
+            } finally {
+                rc.done();
             }
             
-            if (conf.getConnectionRetainModeConstant() == ConnectionRetainModes.CONN_RETAIN_ALWAYS) {
-                // warn about container managed EMs holding on to connections.
-                _log.warn(_loc.get("cm-retain-always",conf.getId()));
-            }
+            PersistenceProductDerivation pd = new PersistenceProductDerivation();
+            try {
+                Object poolValue = Configurations.removeProperty(EMF_POOL, m);
+                ConfigurationProvider cp = pd.load(pui, m);
+                if (cp == null)
+                    return null;
 
-            // Create appropriate LifecycleEventManager
-            loadValidator(factory);
-            
-            OpenJPAEntityManagerFactory emf = JPAFacadeHelper.toEntityManagerFactory(factory);
-            if (_log.isTraceEnabled()) {
-                _log.trace(this + " creating container " + emf + " for PU " + pui.getPersistenceUnitName() + ".");
+                // add enhancer
+                Exception transformerException = null;
+                String ctOpts = (String) Configurations.getProperty(CLASS_TRANSFORMER_OPTIONS, pui.getProperties());
+                try {
+                    pui.addTransformer(new ClassTransformerImpl(cp, ctOpts,
+                        pui.getNewTempClassLoader(), newConfigurationImpl()));
+                } catch (Exception e) {
+                    // fail gracefully
+                    transformerException = e;
+                }
+
+                // if the BrokerImpl hasn't been specified, switch to the
+                // non-finalizing one, since anything claiming to be a container
+                // should be doing proper resource management.
+                if (!Configurations.containsProperty(BrokerValue.KEY, cp.getProperties())) {
+                    cp.addProperty("openjpa." + BrokerValue.KEY, getDefaultBrokerAlias());
+                }
+
+                // OPENJPA-1491 If running under OSGi, use the Bundle's ClassLoader instead of the application one
+                BrokerFactory factory;
+                if (BundleUtils.runningUnderOSGi()) {
+                    factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
+                } else {
+                    factory = getBrokerFactory(cp, poolValue, pui.getClassLoader());
+                }
+                JAGDebug.startReportChain().logVariable("factory", factory).append(" ")
+                    .logObjectAddress(factory).done();
+                if (factory instanceof org.apache.openjpa.kernel.DelegatingBrokerFactory) {
+                    BrokerFactory delegate = ((org.apache.openjpa.kernel.DelegatingBrokerFactory)factory).getDelegate();
+                    JAGDebug.startReportChain().logVariable("factory delegate", delegate)
+                        .append(" ").logObjectAddress(delegate).done();
+                }
+
+                OpenJPAConfiguration conf = factory.getConfiguration();
+                conf.setAppClassLoader(pui.getClassLoader());
+                setPersistenceEnvironmentInfo(conf, pui);
+                _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+                JAGDebug.startReportChain().logVariable("conf", conf).append(" ").logObjectAddress(conf).done();
+                JAGDebug.startReportChain().logVariable("mdr", conf.getMetaDataRepositoryInstance())
+                    .append(" ").logObjectAddress(conf.getMetaDataRepositoryInstance()).done();
+                
+                // now we can log any transformer exceptions from above
+                if (transformerException != null) {
+                    if (_log.isTraceEnabled()) {
+                        _log.warn(_loc.get("transformer-registration-error-ex", pui), transformerException);
+                    } else {
+                        _log.warn(_loc.get("transformer-registration-error", pui));
+                    }
+                }
+                
+                if (conf.getConnectionRetainModeConstant() == ConnectionRetainModes.CONN_RETAIN_ALWAYS) {
+                    // warn about container managed EMs holding on to connections.
+                    _log.warn(_loc.get("cm-retain-always",conf.getId()));
+                }
+
+                // Create appropriate LifecycleEventManager
+                loadValidator(factory);
+                
+                OpenJPAEntityManagerFactory emf = JPAFacadeHelper.toEntityManagerFactory(factory);
+                if (_log.isTraceEnabled()) {
+                    _log.trace(this + " creating container " + emf + " for PU " + pui.getPersistenceUnitName() + ".");
+                }
+                
+                retVal = emf;
+                return emf;
+            } catch (Exception e) {
+                throw PersistenceExceptions.toPersistenceException(e);
             }
-            
-            return emf;
-        } catch (Exception e) {
-            throw PersistenceExceptions.toPersistenceException(e);
+        } finally {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            rc.append("PersistenceProviderImpl.createContainerEntityManagerFactory() exit: ").nl();
+            rc.logVariable("   retVal", retVal).append(" ").logObjectAddress(retVal).nl();
+            rc.done();
+            JAGDebug.endReportTracking();
         }
     }
 

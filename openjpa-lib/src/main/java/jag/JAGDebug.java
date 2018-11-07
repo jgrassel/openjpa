@@ -312,6 +312,23 @@ public class JAGDebug {
         	return this;
         }
         
+        public ReportChain logObjectAddress(Object o) {
+            if (!isDone) {
+                append(" ");
+                try {
+                    if (o != null) {
+                        append("(").append("@");
+                        append(Integer.toHexString(System.identityHashCode(o)));
+                        append(")");
+                    } else {
+                        append("null");
+                    }
+                } catch (Throwable t) {}
+            }
+            
+            return this;
+        }
+        
         private void logObjectInternal(Object o, boolean runToStringOnPCClass) {
         	if (o == null) {
         		append(o);

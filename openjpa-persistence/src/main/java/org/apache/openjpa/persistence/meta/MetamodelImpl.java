@@ -27,6 +27,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.security.AccessController;
+import java.security.CodeSource;
+import java.security.ProtectionDomain;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -57,6 +59,8 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.meta.Members.Member;
 import org.apache.openjpa.util.InternalException;
+
+import jag.JAGDebug;
 
 /**
  * Adapts JPA Metamodel to OpenJPA meta-data repository.
@@ -288,38 +292,174 @@ public class MetamodelImpl implements Metamodel, Resolver {
      * Populate the static fields of the canonical type.
      */
     public <X> void populate(AbstractManagedType<X> type) {
-        Class<X> cls = type.getJavaType();
-        Class<?> mcls = repos.getMetaModel(cls, true);
-        if (mcls == null)
-            return;
-        StaticMetamodel anno = mcls.getAnnotation(StaticMetamodel.class);
-        if (anno == null)
-            throw new IllegalArgumentException(_loc.get("meta-class-no-anno", 
-                    mcls.getName(), cls.getName(), StaticMetamodel.class.getName()).getMessage());
-
-        if (cls != anno.value()) {
-            throw new IllegalStateException(_loc.get("meta-class-mismatch",
-                    mcls.getName(), cls.getName(), anno.value()).getMessage());
-        }
-        
-        ParameterizedType mfType = null;
-        Attribute<? super X, ?> f = null;
-        Field[] mfields = AccessController.doPrivileged(J2DoPrivHelper.getDeclaredFieldsAction(mcls));
-        for (Field mf : mfields) {
+        JAGDebug.beginReportTracking(true);
+        try {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
             try {
-                mfType = getParameterizedType(mf); // metamodel type
-                if (mfType == null) {
-                    continue;
+                rc.append("MetamodelImpl.populate() entry:").nl();
+                rc.logVariable("   this", this).append(" ").logObjectAddress(this).nl();
+                rc.logVariable("   type (arg)", type).append(" ").logObjectAddress(type).nl();
+                
+                rc.logVariable("   repos", repos).append(" ").logObjectAddress(repos).nl();
+                
+                if (type != null) {
+                    // type.JavaType
+                    final Class jType = type.getJavaType();
+                    final CodeSource jcs = AccessController
+                            .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(jType)).getCodeSource();
+                    rc.logVariable("      type.getJavaType()", jType).append(" ")
+                        .logObjectAddress(jType).nl();
+                    rc.logVariable("      type.getJavaType() codesource", jcs).nl();
+                    
+                    // type.model
+                    rc.logVariable("      type.model", type.model).append(" ").logObjectAddress(type.model).nl();
+                    
+                    // type.ClassMetaData
+                    final ClassMetaData cmd = type.meta;
+                    rc.logVariable("      type.cmd", cmd).append(" ").logObjectAddress(cmd).nl();
+                    final Class dType = cmd.getDescribedType();
+                    final CodeSource dcs = AccessController
+                            .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(dType)).getCodeSource();
+                    rc.logVariable("      type.cmd.getDescribedType()", dType).append(" ")
+                        .logObjectAddress(dType).nl();
+                    rc.logVariable("      type.cmd.getDescribedType() codesource", dcs).nl();
                 }
-                f = type.getAttribute(mf.getName()); // persistent type
-
-                // populate the static field with persistent type information
-                mf.set(null, f);
-            } catch (Exception e) {
-                throw new RuntimeException(_loc.get("meta-field-mismatch",
-                        new Object[] { mf.getName(), mcls.getName(), toTypeName(mfType), f.getJavaType().toString() })
-                        .getMessage(), e);
+                
+                if (_basics != null && _basics.size() > 0) {
+                    rc.append("      _basics (" + _basics.size() + "):").nl();
+                    for (Map.Entry<Class<?>, Type<?>> entry : _basics.entrySet()) {
+                        rc.append("         ").append(entry.getKey()).logObjectAddress(entry.getKey())
+                            .append(" |--> ").append(entry.getValue()).logObjectAddress(entry.getValue())
+                            .nl();
+                        final CodeSource cs = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey())).getCodeSource();
+                        rc.append("              ").append("key cs = ").append(cs).nl();
+                    }  
+                }
+                if (_embeddables != null && _embeddables.size() > 0) {
+                    rc.append("      _embeddables (" + _embeddables.size() + "):").nl();
+                    for (Map.Entry<Class<?>, EmbeddableType<?>> entry : _embeddables.entrySet()) {
+                        rc.append("         ").append(entry.getKey()).append(" ").logObjectAddress(entry.getKey())
+                            .append(" |--> ").append(entry.getValue()).append(" ").logObjectAddress(entry.getValue())
+                            .nl();
+                        final CodeSource cs = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey())).getCodeSource();
+                        rc.append("              ").append("key cs = ").append(cs).nl();
+                    }  
+                }
+                if (_entities != null && _entities.size() > 0) {
+                    rc.append("      _entities (" + _entities.size() + "):").nl();
+                    for (Map.Entry<Class<?>, EntityType<?>> entry : _entities.entrySet()) {
+                        rc.append("         ").append(entry.getKey()).append(" ").logObjectAddress(entry.getKey())
+                            .append(" |--> ").append(entry.getValue()).append(" ").logObjectAddress(entry.getValue())
+                            .nl();
+                        final CodeSource cs = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey())).getCodeSource();
+                        rc.append("              ").append("key cs = ").append(cs).nl();
+                    }  
+                }
+                if (_mappedsupers != null && _mappedsupers.size() > 0) {
+                    rc.append("      _mappedsupers (" + _mappedsupers.size() + "):").nl();
+                    for (Map.Entry<Class<?>, MappedSuperclassType<?>> entry : _mappedsupers.entrySet()) {
+                        rc.append("         ").append(entry.getKey()).append(" ").logObjectAddress(entry.getKey())
+                            .append(" |--> ").append(entry.getValue()).append(" ").logObjectAddress(entry.getValue())
+                            .nl();
+                        final CodeSource cs = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey())).getCodeSource();
+                        rc.append("              ").append("key cs = ").append(cs).nl();
+                    }  
+                }
+                if (_pseudos != null && _pseudos.size() > 0) {
+                    rc.append("      _pseudos (" + _pseudos.size() + "):").nl();
+                    for (Map.Entry<Class<?>, Types.PseudoEntity<?>> entry : _pseudos.entrySet()) {
+                        rc.append("         ").append(entry.getKey()).append(" ").logObjectAddress(entry.getKey())
+                            .append(" |--> ").append(entry.getValue()).append(" ").logObjectAddress(entry.getValue())
+                            .nl();
+                        final CodeSource cs = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey())).getCodeSource();
+                        rc.append("              ").append("key cs = ").append(cs).nl();
+                    }  
+                }
+            } catch (Throwable t) { 
+                t.printStackTrace();
+            } finally {
+                rc.done();
             }
+            
+            Class<X> cls = type.getJavaType();
+            Class<?> mcls = repos.getMetaModel(cls, true);
+            JAGDebug.startReportChain().logVariable("cls", cls).done();
+            JAGDebug.startReportChain().logVariable("mcls", mcls).done();
+            if (mcls == null)
+                return;
+            StaticMetamodel anno = mcls.getAnnotation(StaticMetamodel.class);
+            JAGDebug.startReportChain().logVariable("anno", anno).done();
+            if (anno != null) {
+                Class<?> annoVal = anno.value();
+                JAGDebug.startReportChain().logVariable("anno.value()", annoVal).logObjectAddress(annoVal).done();
+            }
+            if (anno == null)
+                throw new IllegalArgumentException(_loc.get("meta-class-no-anno", 
+                        mcls.getName(), cls.getName(), StaticMetamodel.class.getName()).getMessage());
+
+            if (cls != anno.value()) {
+                throw new IllegalStateException(_loc.get("meta-class-mismatch",
+                        mcls.getName(), cls.getName(), anno.value()).getMessage());
+            }
+            
+            ParameterizedType mfType = null;
+            Attribute<? super X, ?> f = null;
+            Field[] mfields = AccessController.doPrivileged(J2DoPrivHelper.getDeclaredFieldsAction(mcls));
+            if (mfields != null) {
+                JAGDebug.startReportChain().append("mfields:").nl()
+                .logVariable("   mfields.size()", mfields.length).nl()
+                .logVariable("   mfields", mfields).done();
+            }
+            
+            for (Field mf : mfields) {
+                try {
+                    JAGDebug.startReportChain().logVariable("   Field mf", mf).append(" ").logObjectAddress(mf).done();
+                    mfType = getParameterizedType(mf); // metamodel type
+                    JAGDebug.startReportChain().logVariable("      mfType", mfType)
+                        .append(" ").logObjectAddress(mfType).done();
+                    if (mfType == null) {
+                        continue;
+                    }
+                    f = type.getAttribute(mf.getName()); // persistent type
+                    JAGDebug.startReportChain().logVariable("      f", f).append(" ").logObjectAddress(f).done();
+
+                    // populate the static field with persistent type information
+                    mf.set(null, f);
+                    JAGDebug.startReportChain()
+                        .append("Set Metamodel Static Class Field").nl()                       
+                        .logVariable("     field", mf).nl()
+                        .append("   of declaring class ").append(mf.getDeclaringClass()).append(" ")
+                        .logObjectAddress(mf.getDeclaringClass()).nl()
+                        .append("   with MetaModel").nl()
+                        .logVariable("     f", f).append(" ").logObjectAddress(f).nl()
+                        .logVariable("       f.getName()", f.getName()).nl()
+                        .logVariable("       f.getJavaType()", f.getJavaType()).append(" ")
+                        .logObjectAddress(f.getJavaType()).nl()
+                        .logVariable("       f.getJavaMember()", f.getJavaMember()).nl()
+                        .logObjectAddress(f.getJavaMember()).nl()
+                        .logVariable("       f.getDeclaringType()", f.getDeclaringType()).nl()
+                        .logObjectAddress(f.getDeclaringType()).nl()
+                        .logVariable("       f.getPersistentAttributeType()", f.getPersistentAttributeType()).nl()
+                        .logObjectAddress(f.getPersistentAttributeType()).nl()
+                        .done();
+                } catch (Exception e) {
+                    JAGDebug.startReportChain().append(e).done();
+                    throw new RuntimeException(_loc.get("meta-field-mismatch",
+                            new Object[] { mf.getName(), mcls.getName(), toTypeName(mfType), 
+                                f.getJavaType().toString() })
+                            .getMessage(), e);
+                }
+            }
+        } finally {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            rc.append("MetamodelImpl.populate() exit: ");
+            rc.done();
+            JAGDebug.endReportTracking();
         }
     }
     

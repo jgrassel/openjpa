@@ -20,7 +20,9 @@ package org.apache.openjpa.meta;
 
 import java.io.Serializable;
 import java.security.AccessController;
+import java.security.CodeSource;
 import java.security.PrivilegedActionException;
+import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -57,6 +59,7 @@ import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.OpenJPAId;
 
+import jag.JAGDebug;
 import serp.util.Strings;
 
 /**
@@ -1865,9 +1868,77 @@ public class MetaDataRepository implements PCRegistry.RegisterClassListener, Con
      * Puts the meta class corresponding to the given entity class.
      */
     public void setMetaModel(Class<?> m2) {
-        Class<?> cls = _factory.getManagedClass(m2);
-        if (cls != null)
-            _metamodel.put(cls, m2);
+        JAGDebug.beginReportTracking(true);
+        try {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            try {
+                rc.append("MetaDataRepository.setMetaModel() entry:");
+                rc.logVariable("   this", this).append(" ").logObjectAddress(this).nl();
+                rc.logVariable("   m2", m2).append(" ").logObjectAddress(m2).nl();
+                
+                try {
+                    if (m2 != null) {
+                        final ProtectionDomain pd = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(m2));
+//                        rc.logVariable("   m2 protection domain", pd).nl();
+                        final CodeSource cs = pd.getCodeSource();
+                        rc.logVariable("   m2 CodeSource", cs).nl();
+                        
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                }
+            } finally {
+                rc.done();
+            }
+            
+            if (_metamodel != null && !_metamodel.isEmpty()) {
+                rc = JAGDebug.startReportChain();
+                try {
+                    rc.append("_metamodel (").append(_metamodel.size()).append(")").nl();
+                    for (Map.Entry<Class<?>, Class<?>> entry : _metamodel.entrySet()) {
+                        rc.append("     ").append(entry.getKey()).append(" ").logObjectAddress(entry.getKey())
+                            .append(" |---> ").append(entry.getValue()).append(" ").logObjectAddress(entry.getValue())
+                            .nl();
+                        final ProtectionDomain pd_key = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey()));
+                        final ProtectionDomain pd_val = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getValue()));
+                        rc.append("          key cs = ").append(pd_key.getCodeSource()).nl();
+                        rc.append("          val cs = ").append(pd_val.getCodeSource()).nl();                       
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                } finally {
+                    rc.done();
+                }
+            } else {
+                JAGDebug.report("_metamodel is empty.");
+            }
+            
+            Class<?> cls = _factory.getManagedClass(m2);
+            
+            if (cls != null) {
+                try {
+                    rc.append("Inserting into _metamodel: ").nl();
+                    rc.append("     cls (key) = ").append(cls).append(" ").logObjectAddress(cls).nl();
+                    rc.append("     m2 (val) = ").append(m2).append(" ").logObjectAddress(m2).nl();
+                    final ProtectionDomain pd_cls = AccessController
+                            .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(cls));
+                    rc.append("        (cls CodeSource) = ").append(pd_cls.getCodeSource()).nl();
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                } finally {
+                    rc.done();
+                }
+                _metamodel.put(cls, m2);
+            }
+        } finally {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            rc.append("MetaDataRepository.setMetaModel() exit: ");
+            rc.done();
+            JAGDebug.endReportTracking();
+        }
     }
 
     /**
@@ -1891,19 +1962,94 @@ public class MetaDataRepository implements PCRegistry.RegisterClassListener, Con
      * the meta class.
      */
     public Class<?> getMetaModel(Class<?> entity, boolean load) {
-        if (_metamodel.containsKey(entity))
-            return _metamodel.get(entity);
-        String m2 = _factory.getMetaModelClassName(entity.getName());
+        JAGDebug.beginReportTracking(true);
+        Class<?> retVal = null;
         try {
-            ClassLoader loader = AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(entity));
-            Class<?> m2cls = AccessController.doPrivileged(J2DoPrivHelper.getForNameAction(m2, true, loader));
-            _metamodel.put(entity, m2cls);
-            return m2cls;
-        } catch (Throwable t) {
-            if (_log.isInfoEnabled())
-                _log.warn(_loc.get("meta-no-model", m2, entity, t));
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            try {
+                rc.append("MetaDataRepository.getMetaModel() entry:").nl();
+                rc.logVariable("   this", this).append(" ").logObjectAddress(this).nl();
+                rc.logVariable("   entity", entity).append(" ").logObjectAddress(entity).nl();
+                rc.logVariable("   load", load).append(" ").logObjectAddress(load).nl();
+                
+                try {
+                    if (entity != null) {
+                        final ProtectionDomain pd = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entity));
+//                        rc.logVariable("entity protection domain", pd).nl();
+                        final CodeSource cs = pd.getCodeSource();
+                        rc.logVariable("     entity CodeSource", cs).nl();
+                        
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                }
+            } finally {
+                rc.done();
+            }
+            
+            if (_metamodel != null && !_metamodel.isEmpty()) {
+                rc = JAGDebug.startReportChain();
+                try {
+                    rc.append("_metamodel (").append(_metamodel.size()).append(")").nl();
+                    for (Map.Entry<Class<?>, Class<?>> entry : _metamodel.entrySet()) {
+                        rc.append("     ").append(entry.getKey()).append(" ").logObjectAddress(entry.getKey())
+                            .append(" |---> ").append(entry.getValue()).append(" ").logObjectAddress(entry.getValue())
+                            .nl();
+                        final ProtectionDomain pd_key = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getKey()));
+                        final ProtectionDomain pd_val = AccessController
+                                .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(entry.getValue()));
+                        rc.append("          key cs = ").append(pd_key.getCodeSource()).nl();
+                        rc.append("          val cs = ").append(pd_val.getCodeSource()).nl();                       
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                } finally {
+                    rc.done();
+                }
+            } else {
+                JAGDebug.report("_metamodel is empty.");
+            }
+             
+            if (_metamodel.containsKey(entity)) {
+                retVal = _metamodel.get(entity);
+                return retVal;
+                // return _metamodel.get(entity);
+            }
+                
+            String m2 = _factory.getMetaModelClassName(entity.getName());
+            try {
+                ClassLoader loader = AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(entity));
+                Class<?> m2cls = AccessController.doPrivileged(J2DoPrivHelper.getForNameAction(m2, true, loader));
+                _metamodel.put(entity, m2cls);
+                rc = JAGDebug.startReportChain();
+                try {
+                    rc.append("Inserting into _metamodel: ").nl();
+                    rc.append("     entity (key) = ").append(entity).append(" ").logObjectAddress(entity).nl();
+                    rc.append("     m2cls (val) = ").append(m2cls).append(" ").logObjectAddress(m2cls).nl();
+                    final ProtectionDomain pd_m2cls = AccessController
+                            .doPrivileged(J2DoPrivHelper.getProtectionDomainAction(m2cls));
+                    rc.append("        (CodeSource) = ").append(pd_m2cls.getCodeSource()).nl();
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                } finally {
+                    rc.done();
+                }
+                retVal = m2cls;
+                return m2cls;
+            } catch (Throwable t) {
+                if (_log.isInfoEnabled())
+                    _log.warn(_loc.get("meta-no-model", m2, entity, t));
+            }
+            return null;
+        } finally {
+            JAGDebug.ReportChain rc = JAGDebug.startReportChain();
+            rc.append("MetaDataRepository.getMetaModel() exit: ");
+            rc.append(retVal).append(" ").logObjectAddress(retVal);
+            rc.done();
+            JAGDebug.endReportTracking();
         }
-        return null;
     }
 
     // /////////////////////////////
