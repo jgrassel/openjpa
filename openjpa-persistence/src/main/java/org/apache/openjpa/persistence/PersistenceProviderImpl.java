@@ -208,11 +208,29 @@ public class PersistenceProviderImpl
                 
                 if (pui != null) {
                     rc.nl();
+                    rc.logVariable("      pui.puname", pui.getPersistenceUnitName()).nl();
                     rc.logVariable("      pui.purootURL", pui.getPersistenceUnitRootUrl()).nl();
+                    rc.logVariableAddress("      pui.classloader", pui.getClassLoader()).nl();
+                    java.util.List<String> mapfileList = pui.getMappingFileNames();
+                    if (mapfileList != null && mapfileList.size() > 0) {
+                        for (String mfile : mapfileList) {
+                            rc.logVariable("      pui.mappingfile", mfile).nl();
+                        }
+                    }
+                    
                     java.util.List<java.net.URL> urlList = pui.getJarFileUrls();
                     if (urlList != null && urlList.size() > 0) {
                         for (java.net.URL url : urlList) {
                             rc.logVariable("      pui.jarfileurl", url).nl();
+                        }
+                    }
+                    
+                    java.util.Properties propList = pui.getProperties();
+                    if (propList != null && propList.size() > 0) {
+                        java.util.Enumeration pnames = propList.propertyNames();
+                        while (pnames.hasMoreElements()) {
+                            Object prop = pnames.nextElement();
+                            rc.logVariable("      pui.prop " + prop, propList.get(prop)).nl();
                         }
                     }
                 }
@@ -263,10 +281,7 @@ public class PersistenceProviderImpl
                 OpenJPAConfiguration conf = factory.getConfiguration();
                 conf.setAppClassLoader(pui.getClassLoader());
                 setPersistenceEnvironmentInfo(conf, pui);
-                _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
-                JAGDebug.startReportChain().logVariable("conf", conf).append(" ").logObjectAddress(conf).done();
-                JAGDebug.startReportChain().logVariable("mdr", conf.getMetaDataRepositoryInstance())
-                    .append(" ").logObjectAddress(conf.getMetaDataRepositoryInstance()).done();
+                _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);               
                 
                 // now we can log any transformer exceptions from above
                 if (transformerException != null) {
@@ -290,6 +305,14 @@ public class PersistenceProviderImpl
                     _log.trace(this + " creating container " + emf + " for PU " + pui.getPersistenceUnitName() + ".");
                 }
                 
+                try {
+                    JAGDebug.startReportChain().logVariable("conf", conf).append(" ").logObjectAddress(conf).done();
+                } catch (Throwable t) {}
+//                try {
+//                    JAGDebug.startReportChain().logVariable("mdr", conf.getMetaDataRepositoryInstance())
+//                    .append(" ").logObjectAddress(conf.getMetaDataRepositoryInstance()).done();
+//                } catch (Throwable t) {}
+                         
                 retVal = emf;
                 return emf;
             } catch (Exception e) {
