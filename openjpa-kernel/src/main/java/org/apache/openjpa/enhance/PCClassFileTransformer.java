@@ -56,7 +56,6 @@ public class PCClassFileTransformer
     private final ClassLoader _tmpLoader;
     private final Log _log;
     private final Set _names;
-    private boolean _transforming = false;
 
     /**
      * Constructor.
@@ -177,7 +176,6 @@ public class PCClassFileTransformer
                 throw (IllegalClassFormatException) t;
             throw new GeneralException(t);
         } finally {
-            _transforming = false;
             if (returnBytes != null && _log.isTraceEnabled())
                 _log.trace(_loc.get("runtime-enhance-complete", className,
                     bytes.length, returnBytes.length));
